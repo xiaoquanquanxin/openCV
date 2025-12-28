@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenCV.js - 动态广告插入</title>
+    <script async src="https://docs.opencv.org/4.x/opencv.js"></script>
+</head>
+<body>
+<h2>体育赛事动态广告插入</h2>
+<input type="file" id="uploadVideo" accept="video/*">
+<input type="file" id="uploadAdImage" accept="image/*">
+<button id="confirmButton" disabled>确认插入广告</button>
+<video id="videoInput" controls></video>
+<canvas id="canvasOutput" style="border: 1px solid #ccc; display: block;"></canvas>
+
+<script type="text/javascript">
+    function onOpenCvReady() {
+        let video = document.getElementById('videoInput');
+        let canvas = document.getElementById('canvasOutput');
+        let ctx = canvas.getContext('2d');
+        const maxVideoWidth = 854;  // 使用手动设置的视频宽度
+        const maxVideoHeight = 480; // 使用手动设置的视频高度
+        const maxAdWidth = 200;
+        const maxAdHeight = 100;
+        let adImage = new Image();
+        let videoFile = null;
+        let adFile = null;
+
+        // 视频文件上传
+        document.getElementById('uploadVideo').addEventListener('change', function(event) {
+            videoFile = event.target.files[0];
+            if (videoFile && adFile) {
+                document.getElementById('confirmButton').disabled = false; // 启用确认按钮
+            }
+        });
+
+        // 广告图像上传
+        document.getElementById('uploadAdImage').addEventListener('change', function(event) {
+            adFile = event.target.files[0];
+            let reader = new FileReader();
+            reader.onload = function(e) {
+                adImage.src = e.target.result;
+            };
+            reader.readAsDataURL(adFile);
+        });
+
+        // 确认按钮点击事件
+        document.getElementById('confirmButton').addEventListener('click', function() {
+            if (videoFile && adFile) {
+                let videoURL = URL.createObjectURL(videoFile);
+                video.src = videoURL;
+                video.load();
+                video.play();
+            }
+        });
+
+        // 处理广告图像加载完成
+        adImage.onload = function() {
+            console.log("广告图像已加载");
+            console.log("广告图像尺寸：", adImage.width, adImage.height);
+
+            // 自动调整广告图像的大小
+            let adWidth = maxAdWidth;
+            let adHeight = (adImage.height / adImage.width) * maxAdWidth;
+            if (adHeight > maxAdHeight) {
+                adHeight = maxAdHeight;
+                adWidth = (adImage.width / adImage.height) * maxAdHeight;
+            }
+
+            console.log("调整后的广告图像尺寸：", adWidth, adHeight);
+
+            // 处理视频帧
+            function processVideo() {
+                if (video.paused || video.ended) return; // 如果视频暂停或结束，停止处理
+
+                // 设置 canvas 的宽高
+                canvas.width = maxVideoWidth;  // 使用固定的宽度
+                canvas.height = maxVideoHeight; // 使用固定的高度
+
+                // 将当前视频帧绘制到 canvas 上
+                ctx.drawImage(video, 0, 0, maxVideoWidth, maxVideoHeight);
+
+                // 在某个广告位置插入广告图像（这里可以是模板匹配的区域）
+                // 假设广告位在场地的右上角
+                ctx.drawImage(adImage, maxVideoWidth - adWidth - 20, 20, adWidth, adHeight);
+
+                // 显示处理后的图像
+                cv.imshow(canvas, cv.imread(canvas));
+
+                // 继续处理下一帧
+                requestAnimationFrame(processVideo);
+            }
+
+            // 当视频播放时开始处理
+            video.onplay = function () {
+                processVideo();
+            };
+        };
+
+        // 处理广告图像加载错误
+        adImage.onerror = function() {
+            console.log("广告图像加载失败！");
+        };
+    }
+
+    onOpenCvReady(); // 初始化 OpenCV.js
+</script>
+</body>
+</html>

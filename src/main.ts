@@ -1,109 +1,79 @@
-import cv from '@techstark/opencv-js';
+function onOpenCvReady() {
+  const video = document.getElementById('videoInput') as HTMLVideoElement;
+  const canvas = document.getElementById('canvasOutput') as HTMLCanvasElement;
+  const ctx = canvas.getContext('2d')!;
+  const maxVideoWidth = 854;
+  const maxVideoHeight = 480;
+  const maxAdWidth = 200;
+  const maxAdHeight = 100;
+  const adImage = new Image();
 
-class VideoAdInserter {
-  private video: HTMLVideoElement;
-  private canvas: HTMLCanvasElement;
-  private ctx: CanvasRenderingContext2D;
-  private adImage = new Image();
-  private videoFile: File | null = null;
-  private adFile: File | null = null;
-  
-  private readonly maxVideoWidth = 854;
-  private readonly maxVideoHeight = 480;
-  private readonly maxAdWidth = 200;
-  private readonly maxAdHeight = 100;
+  // 直接加载固定的视频和广告图片
+  video.src = '/assets/videos/stock.mp4';
+  video.load();
+  adImage.src = '/assets/images/ad-image.png';
 
-  constructor() {
-    this.video = document.getElementById('videoInput') as HTMLVideoElement;
-    this.canvas = document.getElementById('canvasOutput') as HTMLCanvasElement;
-    this.ctx = this.canvas.getContext('2d')!;
-    
-    this.initEventListeners();
-    this.loadDefaultAssets();
-  }
+  // 处理广告图像加载完成
+  adImage.onload = function() {
+    console.log("广告图像已加载");
+    console.log("广告图像尺寸：", adImage.width, adImage.height);
 
-  private loadDefaultAssets() {
-    // 预加载默认的示例资源
-    this.loadDefaultVideo('/assets/videos/stock.mp4');
-    this.loadDefaultAd('/assets/images/ad-image.png');
-  }
+    // 自动调整广告图像的大小
+    let adWidth = maxAdWidth;
+    let adHeight = (adImage.height / adImage.width) * maxAdWidth;
+    if (adHeight > maxAdHeight) {
+      adHeight = maxAdHeight;
+      adWidth = (adImage.width / adImage.height) * maxAdHeight;
+    }
 
-  private loadDefaultVideo(path: string) {
-    this.video.src = path;
-    this.video.load();
-  }
+    console.log("调整后的广告图像尺寸：", adWidth, adHeight);
 
-  private loadDefaultAd(path: string) {
-    this.adImage.src = path;
-  }
+    // 处理视频帧
+    function processVideo() {
+      if (video.paused || video.ended) return;
 
-  private initEventListeners() {
-    document.getElementById('uploadVideo')?.addEventListener('change', (e) => {
-      this.videoFile = (e.target as HTMLInputElement).files?.[0] || null;
-      this.updateConfirmButton();
-    });
+      // 设置 canvas 的宽高
+      canvas.width = maxVideoWidth;
+      canvas.height = maxVideoHeight;
 
-    document.getElementById('uploadAdImage')?.addEventListener('change', (e) => {
-      this.adFile = (e.target as HTMLInputElement).files?.[0] || null;
-      if (this.adFile) {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          this.adImage.src = e.target?.result as string;
-        };
-        reader.readAsDataURL(this.adFile);
+      // 将当前视频帧绘制到 canvas 上
+      ctx.drawImage(video, 0, 0, maxVideoWidth, maxVideoHeight);
+
+      // 插入广告图像到视频帧的左上角
+      ctx.drawImage(adImage, 20, 20, adWidth, adHeight);
+
+      // 显示处理后的图像
+      const cv = (window as any).cv;
+      if (cv) {
+        cv.imshow(canvas, cv.imread(canvas));
       }
-      this.updateConfirmButton();
-    });
 
-    document.getElementById('confirmButton')?.addEventListener('click', () => {
-      this.processVideo();
-    });
+      // 继续处理下一帧
+      requestAnimationFrame(processVideo);
+    }
 
-    this.adImage.onload = () => {
-      console.log('广告图像已加载');
-      this.video.onplay = () => this.renderFrames();
+    // 当视频播放时开始处理
+    video.onplay = function () {
+      processVideo();
     };
-  }
+  };
 
-  private updateConfirmButton() {
-    const button = document.getElementById('confirmButton') as HTMLButtonElement;
-    button.disabled = !(this.videoFile && this.adFile);
-  }
-
-  private processVideo() {
-    if (this.videoFile) {
-      const videoURL = URL.createObjectURL(this.videoFile);
-      this.video.src = videoURL;
-      this.video.load();
-      this.video.play();
-    }
-  }
-
-  private renderFrames() {
-    if (this.video.paused || this.video.ended) return;
-
-    this.canvas.width = this.maxVideoWidth;
-    this.canvas.height = this.maxVideoHeight;
-
-    this.ctx.drawImage(this.video, 0, 0, this.maxVideoWidth, this.maxVideoHeight);
-
-    const { width: adWidth, height: adHeight } = this.calculateAdSize();
-    this.ctx.drawImage(this.adImage, 20, 20, adWidth, adHeight);
-
-    requestAnimationFrame(() => this.renderFrames());
-  }
-
-  private calculateAdSize() {
-    let adWidth = this.maxAdWidth;
-    let adHeight = (this.adImage.height / this.adImage.width) * this.maxAdWidth;
-    
-    if (adHeight > this.maxAdHeight) {
-      adHeight = this.maxAdHeight;
-      adWidth = (this.adImage.width / this.adImage.height) * this.maxAdHeight;
-    }
-    
-    return { width: adWidth, height: adHeight };
-  }
+  // 处理广告图像加载错误
+  adImage.onerror = function() {
+    console.log("广告图像加载失败！");
+  };
 }
 
-new VideoAdInserter();
+// 等待 OpenCV 加载完成
+if (typeof (window as any).cv !== 'undefined') {
+  onOpenCvReady();
+} else {
+  const checkOpenCV = () => {
+    if (typeof (window as any).cv !== 'undefined') {
+      onOpenCvReady();
+    } else {
+      setTimeout(checkOpenCV, 100);
+    }
+  };
+  checkOpenCV();
+}
