@@ -1,0 +1,18 @@
+{
+  "name": "openCV",
+  "version": "1.0.0",
+  "description": "OpenCV.js 视频广告插入项目",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "vite": "^5.0.0"
+  },
+  "dependencies": {
+    "@techstark/opencv-js": "^4.9.0-release.1"
+  }
+}
