@@ -235,6 +235,7 @@ class VideoAdReplacer {
       let frameCount = 0;
       let startTime = 0;
       const sampleDuration = 1000; // 采样 1 秒
+      const minFrames = 10; // 最少采样帧数
 
       const countFrames = (now: number, metadata: any) => {
         if (frameCount === 0) {
@@ -242,15 +243,25 @@ class VideoAdReplacer {
         }
 
         frameCount++;
+        const elapsed = now - startTime;
 
-        if (now - startTime < sampleDuration) {
+        // 确保至少采样1秒且至少10帧
+        if (elapsed < sampleDuration || frameCount < minFrames) {
           (this.video as any).requestVideoFrameCallback(countFrames);
         } else {
           // 计算帧率
-          const elapsed = now - startTime;
-          this.videoDetectedFps = Math.round((frameCount * 1000) / elapsed);
+          const calculatedFps = Math.round((frameCount * 1000) / elapsed);
 
-          console.log(`检测到视频帧率: ${this.videoDetectedFps} FPS（采样 ${frameCount} 帧）`);
+          // 验证结果合理性（常见帧率：24, 25, 30, 60等）
+          if (calculatedFps >= 10 && calculatedFps <= 120) {
+            this.videoDetectedFps = calculatedFps;
+            console.log(`检测到视频帧率: ${this.videoDetectedFps} FPS（采样 ${frameCount} 帧，耗时 ${elapsed.toFixed(0)}ms）`);
+          } else {
+            // 检测结果不合理，使用配置值
+            this.videoDetectedFps = this.config.videoFps;
+            console.warn(`帧率检测异常 (${calculatedFps} FPS)，使用配置值: ${this.videoDetectedFps} FPS`);
+          }
+
           console.log(`导出将使用: ${this.videoRealWidth}x${this.videoRealHeight} @ ${this.videoDetectedFps} FPS`);
 
           if (loadingStatus) {
@@ -263,7 +274,16 @@ class VideoAdReplacer {
       };
 
       // 开始播放以检测帧率
-      this.video.play();
+      this.video.currentTime = 0;
+      this.video.play().catch(err => {
+        // 播放失败，使用配置值
+        console.warn('视频播放失败，无法检测帧率，使用配置值:', err);
+        this.videoDetectedFps = this.config.videoFps;
+        if (loadingStatus) {
+          loadingStatus.textContent = `✓ 已就绪 (${this.videoRealWidth}x${this.videoRealHeight} @ ${this.videoDetectedFps} FPS 估算)`;
+        }
+      });
+
       (this.video as any).requestVideoFrameCallback(countFrames);
     } else {
       // 不支持自动检测，使用配置值
