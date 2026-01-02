@@ -416,13 +416,18 @@ class VideoAdReplacer {
       };
     });
 
+    // 创建离线渲染器（在循环外，避免每帧创建导致内存泄漏）
+    const offlineRenderer = new Renderer(this.offlineCanvas, this.offlineCtx, this.cv);
+    offlineRenderer.setConfig(this.renderer.getConfig());
+
     // 逐帧处理
     const frameInterval = 1000 / fps;
     let currentFrame = 0;
 
     const processNextFrame = async () => {
       if (currentFrame >= totalFrames) {
-        // 完成
+        // 完成 - 清理资源
+        offlineRenderer.cleanup();
         mediaRecorder.stop();
         return;
       }
@@ -441,9 +446,7 @@ class VideoAdReplacer {
           const trackedCorners = tracker.track(frame);
           const warpedAd = transform.warpAd(trackedCorners);
 
-          // 使用离线 renderer（创建临时实例）
-          const offlineRenderer = new Renderer(this.offlineCanvas, this.offlineCtx, this.cv);
-          offlineRenderer.setConfig(this.renderer.getConfig());
+          // 复用离线渲染器（不再每帧创建）
           offlineRenderer.render(frame, warpedAd);
 
           if (warpedAd) warpedAd.delete();
