@@ -90,7 +90,12 @@ export class Renderer {
 
     // 5. 高斯模糊 - 平滑边缘
     if (this.config.blurSize > 0) {
-      const ksize = this.config.blurSize;
+      // 确保核大小是奇数（OpenCV 要求）
+      let ksize = this.config.blurSize;
+      if (ksize % 2 === 0) {
+        ksize = ksize + 1;  // 偶数 → 奇数
+      }
+
       this.cv.GaussianBlur(
         mask,
         mask,
