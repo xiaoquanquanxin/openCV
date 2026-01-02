@@ -25,12 +25,24 @@ export class PlacementManager {
   }
 
   initializeTracking(placementId: string, corners: Point[], firstFrame: any): void {
+    // 清理旧的跟踪器（如果存在）
+    const oldTracker = this.trackers.get(placementId);
+    if (oldTracker) {
+      oldTracker.cleanup();
+    }
+
     const tracker = new Tracker(this.cv);
     tracker.initialize(corners, firstFrame);
     this.trackers.set(placementId, tracker);
   }
 
   initializeTransform(placementId: string, adElement: HTMLImageElement, videoWidth: number, videoHeight: number): void {
+    // 清理旧的变换器（如果存在）
+    const oldTransform = this.transforms.get(placementId);
+    if (oldTransform) {
+      oldTransform.cleanup();
+    }
+
     const transform = new Transform(this.cv);
     transform.initialize({
       adImage: adElement,

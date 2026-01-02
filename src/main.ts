@@ -94,6 +94,7 @@ class VideoAdReplacer {
 
   private setupEventListeners(): void {
     const startBtn = document.getElementById('startMarking') as HTMLButtonElement;
+    const replayBtn = document.getElementById('replay') as HTMLButtonElement;
     const resetBtn = document.getElementById('reset') as HTMLButtonElement;
 
     startBtn.addEventListener('click', () => {
@@ -105,6 +106,20 @@ class VideoAdReplacer {
       this.stopProcessing();
       this.video.pause();
       this.video.currentTime = 0;
+
+      // 隐藏重播按钮
+      replayBtn.style.display = 'none';
+    });
+
+    replayBtn.addEventListener('click', () => {
+      const currentPlacementId = this.stateManager.getState().currentPlacementId;
+      if (!currentPlacementId) return;
+
+      // 停止当前播放
+      this.stopProcessing();
+
+      // 重新开始跟踪（会重置到第一帧）
+      this.startTracking(currentPlacementId);
     });
 
     resetBtn.addEventListener('click', () => {
@@ -113,9 +128,13 @@ class VideoAdReplacer {
       this.placementManager.forceReset();
       this.markingUI.forceReset();
       this.stateManager.forceReset();
+      this.renderer.cleanup();
 
       this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
       this.video.currentTime = 0;
+
+      // 隐藏重播按钮
+      replayBtn.style.display = 'none';
     });
 
     this.video.addEventListener('seeked', () => {
@@ -125,6 +144,34 @@ class VideoAdReplacer {
         this.ctx.drawImage(this.video, 0, 0, this.canvas.width, this.canvas.height);
         this.markingUI.startMarking();
       }
+    });
+
+    // 前景检测参数控制
+    const enableForeground = document.getElementById('enableForeground') as HTMLInputElement;
+    const motionThreshold = document.getElementById('motionThreshold') as HTMLInputElement;
+    const dilateSize = document.getElementById('dilateSize') as HTMLInputElement;
+    const blurSize = document.getElementById('blurSize') as HTMLInputElement;
+
+    enableForeground?.addEventListener('change', () => {
+      this.renderer.setConfig({ useForegroundDetection: enableForeground.checked });
+    });
+
+    motionThreshold?.addEventListener('input', () => {
+      const value = parseInt(motionThreshold.value);
+      document.getElementById('thresholdValue')!.textContent = value.toString();
+      this.renderer.setConfig({ motionThreshold: value });
+    });
+
+    dilateSize?.addEventListener('input', () => {
+      const value = parseInt(dilateSize.value);
+      document.getElementById('dilateValue')!.textContent = value.toString();
+      this.renderer.setConfig({ dilateSize: value });
+    });
+
+    blurSize?.addEventListener('input', () => {
+      const value = parseInt(blurSize.value);
+      document.getElementById('blurValue')!.textContent = value.toString();
+      this.renderer.setConfig({ blurSize: value });
     });
   }
 
@@ -167,6 +214,12 @@ class VideoAdReplacer {
       this.video.play();
       this.isProcessing = true;
       this.processVideoWithTracking();
+
+      // 显示重播按钮
+      const replayBtn = document.getElementById('replay') as HTMLButtonElement;
+      if (replayBtn) {
+        replayBtn.style.display = 'inline-block';
+      }
     };
 
     this.video.addEventListener('seeked', onSeeked, { once: true });
