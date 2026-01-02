@@ -11,6 +11,10 @@ class VideoAdReplacer {
   private ctx: CanvasRenderingContext2D;
   private cv: any;
 
+  // 离线渲染用的隐藏 canvas
+  private offlineCanvas: HTMLCanvasElement;
+  private offlineCtx: CanvasRenderingContext2D;
+
   private resourceManager: ResourceManager;
   private placementManager: PlacementManager;
   private stateManager: StateManager;
@@ -67,6 +71,12 @@ class VideoAdReplacer {
     this.canvas = document.getElementById('canvasOutput') as HTMLCanvasElement;
     this.ctx = this.canvas.getContext('2d')!;
     this.cv = (window as any).cv;
+
+    // 创建离线渲染 canvas（不添加到 DOM）
+    this.offlineCanvas = document.createElement('canvas');
+    this.offlineCanvas.width = this.config.videoSize.width;
+    this.offlineCanvas.height = this.config.videoSize.height;
+    this.offlineCtx = this.offlineCanvas.getContext('2d')!;
   }
 
   private initModules(): void {
@@ -100,6 +110,7 @@ class VideoAdReplacer {
   private setupEventListeners(): void {
     const startBtn = document.getElementById('startMarking') as HTMLButtonElement;
     const replayBtn = document.getElementById('replay') as HTMLButtonElement;
+    const exportBtn = document.getElementById('export') as HTMLButtonElement;
     const resetBtn = document.getElementById('reset') as HTMLButtonElement;
 
     startBtn.addEventListener('click', () => {
@@ -112,8 +123,9 @@ class VideoAdReplacer {
       this.video.pause();
       this.video.currentTime = 0;
 
-      // 隐藏重播按钮
+      // 隐藏按钮
       replayBtn.style.display = 'none';
+      exportBtn.style.display = 'none';
     });
 
     replayBtn.addEventListener('click', () => {
@@ -125,6 +137,10 @@ class VideoAdReplacer {
 
       // 重新开始跟踪（会重置到第一帧）
       this.startTracking(currentPlacementId);
+    });
+
+    exportBtn.addEventListener('click', () => {
+      this.exportVideo();
     });
 
     resetBtn.addEventListener('click', () => {
@@ -226,10 +242,14 @@ class VideoAdReplacer {
 
       this.processVideoWithTracking();
 
-      // 显示重播按钮
+      // 显示重播和导出按钮
       const replayBtn = document.getElementById('replay') as HTMLButtonElement;
+      const exportBtn = document.getElementById('export') as HTMLButtonElement;
       if (replayBtn) {
         replayBtn.style.display = 'inline-block';
+      }
+      if (exportBtn) {
+        exportBtn.style.display = 'inline-block';
       }
     };
 
@@ -278,6 +298,138 @@ class VideoAdReplacer {
     currentFrame.delete();
 
     this.animationFrameId = requestAnimationFrame(() => this.processVideoWithTracking());
+  }
+
+  private async exportVideo(): Promise<void> {
+    const currentPlacementId = this.stateManager.getState().currentPlacementId;
+    if (!currentPlacementId) return;
+
+    // 停止实时预览
+    this.stopProcessing();
+
+    // 显示进度UI
+    const progressDiv = document.getElementById('exportProgress')!;
+    const progressBar = document.getElementById('progressBar')!;
+    const progressText = document.getElementById('progressText')!;
+    const progressDetails = document.getElementById('progressDetails')!;
+    progressDiv.style.display = 'block';
+
+    // 获取视频信息
+    const fps = 30; // 输出帧率
+    const duration = this.video.duration;
+    const totalFrames = Math.floor(duration * fps);
+
+    // 创建 MediaRecorder 用于录制
+    const stream = this.offlineCanvas.captureStream(fps);
+    const mediaRecorder = new MediaRecorder(stream, {
+      mimeType: 'video/webm;codecs=vp9',
+      videoBitsPerSecond: 8000000  // 8 Mbps
+    });
+
+    const chunks: Blob[] = [];
+    mediaRecorder.ondataavailable = (e) => {
+      if (e.data.size > 0) {
+        chunks.push(e.data);
+      }
+    };
+
+    mediaRecorder.onstop = () => {
+      // 合成最终视频
+      const blob = new Blob(chunks, { type: 'video/webm' });
+      const url = URL.createObjectURL(blob);
+
+      // 自动下载
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `ad-replaced-${Date.now()}.webm`;
+      a.click();
+
+      // 隐藏进度UI
+      progressDiv.style.display = 'none';
+      alert('视频导出完成！');
+    };
+
+    // 开始录制
+    mediaRecorder.start();
+
+    // 离线渲染：逐帧处理
+    const tracker = this.placementManager.getTracker(currentPlacementId);
+    const transform = this.placementManager.getTransform(currentPlacementId);
+    const placement = this.placementManager.getPlacement(currentPlacementId);
+
+    if (!tracker || !transform || !placement) {
+      alert('跟踪器未初始化');
+      progressDiv.style.display = 'none';
+      return;
+    }
+
+    // 重新初始化跟踪器（从第一帧开始）
+    this.video.currentTime = 0;
+    await new Promise(resolve => {
+      this.video.onseeked = () => {
+        this.offlineCtx.drawImage(this.video, 0, 0, this.offlineCanvas.width, this.offlineCanvas.height);
+        const firstFrame = this.cv.imread(this.offlineCanvas);
+        tracker.cleanup();
+        tracker.initialize(placement.corners, firstFrame);
+        firstFrame.delete();
+        this.video.onseeked = null;
+        resolve(null);
+      };
+    });
+
+    // 逐帧处理
+    const frameInterval = 1000 / fps;
+    let currentFrame = 0;
+
+    const processNextFrame = async () => {
+      if (currentFrame >= totalFrames) {
+        // 完成
+        mediaRecorder.stop();
+        return;
+      }
+
+      // 设置视频时间
+      const targetTime = currentFrame / fps;
+      this.video.currentTime = targetTime;
+
+      await new Promise<void>(resolve => {
+        this.video.onseeked = () => {
+          // 在离线 canvas 上处理
+          this.offlineCtx.drawImage(this.video, 0, 0, this.offlineCanvas.width, this.offlineCanvas.height);
+          const frame = this.cv.imread(this.offlineCanvas);
+
+          // 跟踪和渲染
+          const trackedCorners = tracker.track(frame);
+          const warpedAd = transform.warpAd(trackedCorners);
+
+          // 使用离线 renderer（创建临时实例）
+          const offlineRenderer = new Renderer(this.offlineCanvas, this.offlineCtx, this.cv);
+          offlineRenderer.setConfig(this.renderer.getConfig());
+          offlineRenderer.render(frame, warpedAd);
+
+          if (warpedAd) warpedAd.delete();
+          frame.delete();
+
+          // 更新进度
+          currentFrame++;
+          const progress = Math.round((currentFrame / totalFrames) * 100);
+          progressBar.style.width = `${progress}%`;
+          progressText.textContent = `${progress}%`;
+          progressDetails.textContent = `正在处理第 ${currentFrame} / ${totalFrames} 帧（不受实时性能限制）`;
+
+          this.video.onseeked = null;
+          resolve();
+        };
+      });
+
+      // 等待一帧时间，让 MediaRecorder 捕获
+      await new Promise(resolve => setTimeout(resolve, frameInterval));
+
+      // 继续下一帧
+      processNextFrame();
+    };
+
+    processNextFrame();
   }
 
   private stopProcessing(): void {

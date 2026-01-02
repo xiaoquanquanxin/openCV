@@ -101,10 +101,15 @@
             <li>在视频画面中按顺序点击广告牌的<strong>4个角点</strong>：
                 <br><strong>左上 → 右上 → 右下 → 左下</strong>
             </li>
-            <li>标记完成后，系统会自动开始跟踪</li>
-            <li>调整下方的前景检测参数后，点击"<strong>重播</strong>"按钮重新播放（保留标记）</li>
+            <li>标记完成后，系统会自动开始<strong>实时预览</strong>（可能有跳帧）</li>
+            <li>调整下方的前景检测参数后，点击"<strong>重播</strong>"按钮重新预览</li>
+            <li>满意后，点击"<strong>导出视频</strong>"进行<strong>离线渲染</strong>（不受实时性能限制）⭐</li>
             <li>点击"<strong>重置</strong>"清空所有数据，重新开始</li>
         </ol>
+        <p style="color: #FF9800; font-weight: bold;">
+            💡 <strong>重要</strong>：实时预览可能卡顿（约25 FPS），这是正常的。
+            导出时会进行<strong>离线渲染</strong>，逐帧处理，输出高质量视频（30 FPS），不受实时性能影响！
+        </p>
         <p><strong>提示：</strong>视频会自动暂停在第一帧，方便你标记角点</p>
     </div>
 
