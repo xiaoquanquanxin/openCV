@@ -77,8 +77,21 @@
     <div id="controls">
         <button id="startMarking">开始标记</button>
         <button id="replay" style="background-color: #2196F3; display: none;">重播</button>
+        <button id="export" style="background-color: #FF9800; display: none;">导出视频</button>
         <button id="reset">重置</button>
         <span id="loadingStatus" style="margin-left: 10px; color: #f44336; font-weight: bold;">加载中...</span>
+        <span id="fpsDisplay" style="margin-left: 20px; font-weight: bold; color: #4CAF50; font-family: monospace;">-- FPS</span>
+    </div>
+
+    <div id="exportProgress" style="display: none; margin: 10px 0; background: #e3f2fd; padding: 15px; border-radius: 5px;">
+        <h4 style="margin: 0 0 10px 0; color: #1976d2;">离线渲染中...</h4>
+        <div style="background: #fff; border-radius: 4px; height: 24px; position: relative; overflow: hidden;">
+            <div id="progressBar" style="background: linear-gradient(90deg, #4CAF50, #8BC34A); height: 100%; width: 0%; transition: width 0.3s;"></div>
+            <span id="progressText" style="position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); font-weight: bold; color: #333;">0%</span>
+        </div>
+        <p style="margin: 10px 0 0 0; font-size: 12px; color: #666;">
+            <span id="progressDetails">正在处理第 0 帧...</span>
+        </p>
     </div>
 
     <div id="instructions">

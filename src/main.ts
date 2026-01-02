@@ -20,6 +20,11 @@ class VideoAdReplacer {
   private isProcessing: boolean = false;
   private animationFrameId: number | null = null;
 
+  // FPS 计数器
+  private frameCount: number = 0;
+  private lastFpsUpdate: number = 0;
+  private currentFps: number = 0;
+
   private config: AppConfig = {
     videoUrl: '/assets/videos/stock.mp4',
     videoSize: { width: 854, height: 480 },
@@ -213,6 +218,12 @@ class VideoAdReplacer {
       this.video.removeEventListener('seeked', onSeeked);
       this.video.play();
       this.isProcessing = true;
+
+      // 重置 FPS 计数器
+      this.frameCount = 0;
+      this.lastFpsUpdate = performance.now();
+      this.currentFps = 0;
+
       this.processVideoWithTracking();
 
       // 显示重播按钮
@@ -228,6 +239,22 @@ class VideoAdReplacer {
   private processVideoWithTracking(): void {
     if (!this.isProcessing || this.video.paused || this.video.ended) {
       return;
+    }
+
+    // FPS 计算
+    const now = performance.now();
+    this.frameCount++;
+
+    if (now - this.lastFpsUpdate >= 1000) {
+      this.currentFps = Math.round((this.frameCount * 1000) / (now - this.lastFpsUpdate));
+      this.frameCount = 0;
+      this.lastFpsUpdate = now;
+
+      // 更新 UI 显示
+      const fpsDisplay = document.getElementById('fpsDisplay');
+      if (fpsDisplay) {
+        fpsDisplay.textContent = `${this.currentFps} FPS`;
+      }
     }
 
     this.ctx.drawImage(this.video, 0, 0, this.canvas.width, this.canvas.height);
