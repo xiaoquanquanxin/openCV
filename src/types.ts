@@ -37,7 +37,8 @@ export interface AdPlacement {
 // 应用配置
 export interface AppConfig {
   videoUrl: string;
-  videoSize: { width: number; height: number };
+  videoFps: number;  // 原视频帧率
+  previewSize: { width: number; height: number };  // 预览canvas大小
   ads: {
     id: string;
     url: string;

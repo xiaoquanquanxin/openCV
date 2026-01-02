@@ -31,12 +31,17 @@ class VideoAdReplacer {
 
   private config: AppConfig = {
     videoUrl: '/assets/videos/stock.mp4',
-    videoSize: { width: 854, height: 480 },
+    videoFps: 30,  // 原视频帧率（需要根据实际视频调整）
+    previewSize: { width: 854, height: 480 },  // 预览canvas大小
     ads: [
       { id: 'ad1', url: '/assets/images/ad-image.png', type: 'image' }
       // 可在此添加更多广告
     ]
   };
+
+  // 原视频的真实分辨率（从视频元数据自动获取）
+  private videoRealWidth: number = 0;
+  private videoRealHeight: number = 0;
 
   constructor() {
     this.initElements();
@@ -73,9 +78,10 @@ class VideoAdReplacer {
     this.cv = (window as any).cv;
 
     // 创建离线渲染 canvas（不添加到 DOM）
+    // 初始尺寸，会在视频加载后更新为真实分辨率
     this.offlineCanvas = document.createElement('canvas');
-    this.offlineCanvas.width = this.config.videoSize.width;
-    this.offlineCanvas.height = this.config.videoSize.height;
+    this.offlineCanvas.width = this.config.previewSize.width;
+    this.offlineCanvas.height = this.config.previewSize.height;
     this.offlineCtx = this.offlineCanvas.getContext('2d')!;
   }
 
@@ -198,8 +204,24 @@ class VideoAdReplacer {
 
   private loadVideo(): void {
     this.video.src = this.config.videoUrl;
-    this.canvas.width = this.config.videoSize.width;
-    this.canvas.height = this.config.videoSize.height;
+
+    // 预览canvas使用配置的预览尺寸
+    this.canvas.width = this.config.previewSize.width;
+    this.canvas.height = this.config.previewSize.height;
+
+    // 监听视频元数据加载，获取真实分辨率
+    this.video.addEventListener('loadedmetadata', () => {
+      this.videoRealWidth = this.video.videoWidth;
+      this.videoRealHeight = this.video.videoHeight;
+
+      console.log(`视频真实分辨率: ${this.videoRealWidth}x${this.videoRealHeight}`);
+      console.log(`预览分辨率: ${this.canvas.width}x${this.canvas.height}`);
+      console.log(`导出将使用真实分辨率: ${this.videoRealWidth}x${this.videoRealHeight} @ ${this.config.videoFps} FPS`);
+
+      // 更新离线canvas为真实分辨率（用于导出）
+      this.offlineCanvas.width = this.videoRealWidth;
+      this.offlineCanvas.height = this.videoRealHeight;
+    });
   }
 
   private startTracking(placementId: string): void {
@@ -225,8 +247,8 @@ class VideoAdReplacer {
       this.placementManager.initializeTransform(
         placementId,
         adSource.element as HTMLImageElement,
-        this.config.videoSize.width,
-        this.config.videoSize.height
+        this.videoRealWidth,  // 使用真实分辨率
+        this.videoRealHeight
       );
 
       firstFrame.delete();
@@ -304,6 +326,11 @@ class VideoAdReplacer {
     const currentPlacementId = this.stateManager.getState().currentPlacementId;
     if (!currentPlacementId) return;
 
+    if (this.videoRealWidth === 0 || this.videoRealHeight === 0) {
+      alert('视频尚未加载完成，请稍等');
+      return;
+    }
+
     // 停止实时预览
     this.stopProcessing();
 
@@ -314,10 +341,12 @@ class VideoAdReplacer {
     const progressDetails = document.getElementById('progressDetails')!;
     progressDiv.style.display = 'block';
 
-    // 获取视频信息
-    const fps = 30; // 输出帧率
+    // 使用原视频的帧率和分辨率
+    const fps = this.config.videoFps;
     const duration = this.video.duration;
     const totalFrames = Math.floor(duration * fps);
+
+    console.log(`开始导出: ${this.videoRealWidth}x${this.videoRealHeight} @ ${fps} FPS, 共 ${totalFrames} 帧`);
 
     // 创建 MediaRecorder 用于录制
     const stream = this.offlineCanvas.captureStream(fps);
@@ -341,12 +370,12 @@ class VideoAdReplacer {
       // 自动下载
       const a = document.createElement('a');
       a.href = url;
-      a.download = `ad-replaced-${Date.now()}.webm`;
+      a.download = `ad-replaced-${this.videoRealWidth}x${this.videoRealHeight}-${Date.now()}.webm`;
       a.click();
 
       // 隐藏进度UI
       progressDiv.style.display = 'none';
-      alert('视频导出完成！');
+      alert(`视频导出完成！\n分辨率: ${this.videoRealWidth}x${this.videoRealHeight}\n帧率: ${fps} FPS`);
     };
 
     // 开始录制
@@ -367,10 +396,20 @@ class VideoAdReplacer {
     this.video.currentTime = 0;
     await new Promise(resolve => {
       this.video.onseeked = () => {
+        // 使用真实分辨率绘制
         this.offlineCtx.drawImage(this.video, 0, 0, this.offlineCanvas.width, this.offlineCanvas.height);
         const firstFrame = this.cv.imread(this.offlineCanvas);
         tracker.cleanup();
-        tracker.initialize(placement.corners, firstFrame);
+
+        // 需要将预览坐标转换为真实分辨率坐标
+        const scaleX = this.videoRealWidth / this.canvas.width;
+        const scaleY = this.videoRealHeight / this.canvas.height;
+        const scaledCorners = placement.corners.map(p => ({
+          x: p.x * scaleX,
+          y: p.y * scaleY
+        }));
+
+        tracker.initialize(scaledCorners, firstFrame);
         firstFrame.delete();
         this.video.onseeked = null;
         resolve(null);
@@ -394,7 +433,7 @@ class VideoAdReplacer {
 
       await new Promise<void>(resolve => {
         this.video.onseeked = () => {
-          // 在离线 canvas 上处理
+          // 在离线 canvas 上处理（真实分辨率）
           this.offlineCtx.drawImage(this.video, 0, 0, this.offlineCanvas.width, this.offlineCanvas.height);
           const frame = this.cv.imread(this.offlineCanvas);
 
@@ -415,7 +454,7 @@ class VideoAdReplacer {
           const progress = Math.round((currentFrame / totalFrames) * 100);
           progressBar.style.width = `${progress}%`;
           progressText.textContent = `${progress}%`;
-          progressDetails.textContent = `正在处理第 ${currentFrame} / ${totalFrames} 帧（不受实时性能限制）`;
+          progressDetails.textContent = `正在处理第 ${currentFrame} / ${totalFrames} 帧 (${this.videoRealWidth}x${this.videoRealHeight})`;
 
           this.video.onseeked = null;
           resolve();
