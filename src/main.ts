@@ -1,28 +1,60 @@
+import { ResourceManager } from './modules/resourceManager';
+import { PlacementManager } from './modules/placementManager';
 import { MarkingUI } from './modules/markingUI';
 import { StateManager } from './modules/state';
-import { Tracker } from './modules/tracker';
-import { Transform } from './modules/transform';
 import { Renderer } from './modules/renderer';
-import { Point } from './types';
+import { AppConfig, AdPlacement } from './types';
 
 class VideoAdReplacer {
   private video: HTMLVideoElement;
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
   private cv: any;
+
+  private resourceManager: ResourceManager;
+  private placementManager: PlacementManager;
   private stateManager: StateManager;
   private markingUI: MarkingUI;
-  private tracker: Tracker;
-  private transform: Transform;
   private renderer: Renderer;
-  private adImage: HTMLImageElement;
+
+  private isProcessing: boolean = false;
+  private animationFrameId: number | null = null;
+
+  private config: AppConfig = {
+    videoUrl: '/assets/videos/stock.mp4',
+    videoSize: { width: 854, height: 480 },
+    ads: [
+      { id: 'ad1', url: '/assets/images/ad-image.png', type: 'image' }
+      // 可在此添加更多广告
+    ]
+  };
 
   constructor() {
     this.initElements();
-    this.loadAdImage();
     this.initModules();
     this.setupEventListeners();
     this.loadVideo();
+  }
+
+  async loadResources(): Promise<void> {
+    try {
+      for (const ad of this.config.ads) {
+        await this.resourceManager.loadAdImage(ad.id, ad.url);
+      }
+
+      const loadingStatus = document.getElementById('loadingStatus');
+      if (loadingStatus) {
+        loadingStatus.textContent = '✓ 已就绪';
+        loadingStatus.style.color = '#4CAF50';
+      }
+    } catch (error) {
+      console.error('资源加载失败:', error);
+      const loadingStatus = document.getElementById('loadingStatus');
+      if (loadingStatus) {
+        loadingStatus.textContent = '✗ 资源加载失败';
+        loadingStatus.style.color = '#f44336';
+      }
+    }
   }
 
   private initElements(): void {
@@ -32,37 +64,31 @@ class VideoAdReplacer {
     this.cv = (window as any).cv;
   }
 
-  private loadAdImage(): void {
-    this.adImage = new Image();
-    this.adImage.src = '/assets/images/ad-image.png';
-    this.adImage.onload = () => {
-      console.log('广告图像加载完成');
-      this.transform = new Transform(this.cv);
-      this.transform.initialize({
-        adImage: this.adImage,
-        videoWidth: 854,
-        videoHeight: 480
-      });
-    };
-  }
-
   private initModules(): void {
+    this.resourceManager = new ResourceManager(this.cv);
+    this.placementManager = new PlacementManager(this.cv);
     this.stateManager = new StateManager();
     this.markingUI = new MarkingUI(this.canvas, this.ctx);
-    this.tracker = new Tracker(this.cv);
     this.renderer = new Renderer(this.canvas, this.ctx, this.cv);
 
-    this.tracker.onTrackingLost = () => {
-      console.warn('跟踪丢失！');
-    };
-
     this.markingUI.onComplete = (corners) => {
-      console.log('标记完成:', corners);
+      const placementId = 'placement-' + Date.now();
+      const adId = 'ad1';
+
+      const placement: AdPlacement = {
+        id: placementId,
+        adId: adId,
+        corners: corners,
+        isActive: true
+      };
+
+      this.placementManager.addPlacement(placement);
       this.stateManager.setState({
         mode: 'tracking',
-        corners
+        currentPlacementId: placementId
       });
-      this.startTracking();
+
+      this.startTracking(placementId);
     };
   }
 
@@ -71,86 +97,132 @@ class VideoAdReplacer {
     const resetBtn = document.getElementById('reset') as HTMLButtonElement;
 
     startBtn.addEventListener('click', () => {
+      if (this.resourceManager.getAllAdSources().length === 0) {
+        alert('资源尚未加载完成，请稍等');
+        return;
+      }
+
+      this.stopProcessing();
       this.video.pause();
       this.video.currentTime = 0;
-      this.markingUI.startMarking();
     });
 
     resetBtn.addEventListener('click', () => {
-      this.markingUI.reset();
-      this.stateManager.reset();
-      this.video.currentTime = 0;
+      this.stopProcessing();
+
+      this.placementManager.forceReset();
+      this.markingUI.forceReset();
+      this.stateManager.forceReset();
+
       this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+      this.video.currentTime = 0;
     });
 
     this.video.addEventListener('seeked', () => {
-      if (this.stateManager.getState().mode === 'idle' || this.stateManager.getState().mode === 'marking') {
+      const mode = this.stateManager.getState().mode;
+
+      if (mode === 'idle') {
         this.ctx.drawImage(this.video, 0, 0, this.canvas.width, this.canvas.height);
+        this.markingUI.startMarking();
       }
     });
   }
 
   private loadVideo(): void {
-    this.video.src = '/assets/videos/stock.mp4';
-    this.canvas.width = 854;
-    this.canvas.height = 480;
+    this.video.src = this.config.videoUrl;
+    this.canvas.width = this.config.videoSize.width;
+    this.canvas.height = this.config.videoSize.height;
   }
 
-  private startTracking(): void {
-    const corners = this.stateManager.getState().corners;
+  private startTracking(placementId: string): void {
+    const placement = this.placementManager.getPlacement(placementId);
+    if (!placement) return;
 
-    // 暂停视频，回到第一帧
+    const adSource = this.resourceManager.getAdSource(placement.adId);
+    if (!adSource) {
+      alert('广告资源未加载');
+      return;
+    }
+
+    this.stopProcessing();
     this.video.pause();
     this.video.currentTime = 0;
 
-    // 等待视频定位到第一帧
     const onSeeked = () => {
-      // 读取第一帧
       this.ctx.drawImage(this.video, 0, 0, this.canvas.width, this.canvas.height);
       const firstFrame = this.cv.imread(this.canvas);
 
-      // 初始化跟踪器
-      this.tracker.initialize(corners, firstFrame);
+      this.placementManager.initializeTracking(placementId, placement.corners, firstFrame);
+
+      this.placementManager.initializeTransform(
+        placementId,
+        adSource.element as HTMLImageElement,
+        this.config.videoSize.width,
+        this.config.videoSize.height
+      );
+
       firstFrame.delete();
 
-      // 开始播放
-      this.video.play();
       this.video.removeEventListener('seeked', onSeeked);
+      this.video.play();
+      this.isProcessing = true;
       this.processVideoWithTracking();
     };
 
-    this.video.addEventListener('seeked', onSeeked);
+    this.video.addEventListener('seeked', onSeeked, { once: true });
   }
 
   private processVideoWithTracking(): void {
-    if (this.video.paused || this.video.ended) return;
+    if (!this.isProcessing || this.video.paused || this.video.ended) {
+      return;
+    }
 
-    // 读取当前帧
     this.ctx.drawImage(this.video, 0, 0, this.canvas.width, this.canvas.height);
     const currentFrame = this.cv.imread(this.canvas);
 
-    // 跟踪
-    const trackedCorners = this.tracker.track(currentFrame);
+    const currentPlacementId = this.stateManager.getState().currentPlacementId;
+    if (currentPlacementId) {
+      const tracker = this.placementManager.getTracker(currentPlacementId);
+      const transform = this.placementManager.getTransform(currentPlacementId);
 
-    // 执行透视变换
-    const warpedAd = this.transform.warpAd(trackedCorners);
+      if (tracker && transform) {
+        const trackedCorners = tracker.track(currentFrame);
+        const warpedAd = transform.warpAd(trackedCorners);
 
-    // 使用渲染器融合
-    this.renderer.render(currentFrame, warpedAd, trackedCorners);
+        this.renderer.render(currentFrame, warpedAd);
 
-    if (warpedAd) warpedAd.delete();
+        if (warpedAd) warpedAd.delete();
+      }
+    }
+
     currentFrame.delete();
 
-    requestAnimationFrame(() => this.processVideoWithTracking());
+    this.animationFrameId = requestAnimationFrame(() => this.processVideoWithTracking());
+  }
+
+  private stopProcessing(): void {
+    this.isProcessing = false;
+
+    if (this.animationFrameId !== null) {
+      cancelAnimationFrame(this.animationFrameId);
+      this.animationFrameId = null;
+    }
+
+    this.video.pause();
   }
 }
 
 function onOpenCvReady() {
-  console.log('OpenCV.js 已加载');
-  new VideoAdReplacer();
+  const cv = (window as any).cv;
+  if (!cv || typeof cv.Mat !== 'function') {
+    setTimeout(onOpenCvReady, 100);
+    return;
+  }
+
+  const app = new VideoAdReplacer();
+  app.loadResources();
 }
 
-// OpenCV加载检测
 if (typeof (window as any).cv !== 'undefined') {
   onOpenCvReady();
 } else {

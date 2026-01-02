@@ -8,6 +8,7 @@ export class MarkingUI {
     isComplete: false,
     isMarking: false
   };
+  private clickHandler: ((event: MouseEvent) => void) | null = null;
 
   public onComplete?: (points: Point[]) => void;
 
@@ -17,11 +18,15 @@ export class MarkingUI {
   }
 
   startMarking(): void {
+    // 强制重置状态
+    this.forceReset();
+
     this.state.isMarking = true;
-    this.state.points = [];
-    this.state.isComplete = false;
     this.canvas.style.cursor = 'crosshair';
-    this.canvas.addEventListener('click', this.handleClick.bind(this));
+
+    // 创建新的点击处理器
+    this.clickHandler = this.handleClick.bind(this);
+    this.canvas.addEventListener('click', this.clickHandler);
   }
 
   private handleClick(event: MouseEvent): void {
@@ -37,7 +42,7 @@ export class MarkingUI {
       this.state.isComplete = true;
       this.state.isMarking = false;
       this.canvas.style.cursor = 'default';
-      this.canvas.removeEventListener('click', this.handleClick.bind(this));
+      this.removeClickListener();
       this.onComplete?.(this.state.points);
     }
 
@@ -91,16 +96,33 @@ export class MarkingUI {
     }
   }
 
-  reset(): void {
+  private removeClickListener(): void {
+    if (this.clickHandler) {
+      this.canvas.removeEventListener('click', this.clickHandler);
+      this.clickHandler = null;
+    }
+  }
+
+  // 强制重置 - 彻底清空所有数据
+  forceReset(): void {
+    // 移除事件监听器
+    this.removeClickListener();
+
+    // 强制清空状态
     this.state = {
       points: [],
       isComplete: false,
       isMarking: false
     };
+
     this.canvas.style.cursor = 'default';
   }
 
+  reset(): void {
+    this.forceReset();
+  }
+
   getMarkedPoints(): Point[] {
-    return this.state.points;
+    return [...this.state.points]; // 返回副本
   }
 }
