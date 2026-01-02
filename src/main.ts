@@ -42,7 +42,7 @@ class VideoAdReplacer {
   // 原视频的真实分辨率（从视频元数据自动获取）
   private videoRealWidth: number = 0;
   private videoRealHeight: number = 0;
-  private videoDetectedFps: number = 0;  // 检测到的帧率
+  private videoDetectedFps: number = 30;  // 检测到的帧率，默认30
 
   constructor() {
     this.initElements();
@@ -221,80 +221,7 @@ class VideoAdReplacer {
       // 更新离线canvas为真实分辨率（用于导出）
       this.offlineCanvas.width = this.videoRealWidth;
       this.offlineCanvas.height = this.videoRealHeight;
-
-      // 检测帧率
-      this.detectFrameRate();
     });
-  }
-
-  private detectFrameRate(): void {
-    const loadingStatus = document.getElementById('loadingStatus');
-
-    // 检查浏览器是否支持 requestVideoFrameCallback（Chrome/Edge）
-    if ('requestVideoFrameCallback' in HTMLVideoElement.prototype) {
-      let frameCount = 0;
-      let startTime = 0;
-      const sampleDuration = 1000; // 采样 1 秒
-      const minFrames = 10; // 最少采样帧数
-
-      const countFrames = (now: number, metadata: any) => {
-        if (frameCount === 0) {
-          startTime = now;
-        }
-
-        frameCount++;
-        const elapsed = now - startTime;
-
-        // 确保至少采样1秒且至少10帧
-        if (elapsed < sampleDuration || frameCount < minFrames) {
-          (this.video as any).requestVideoFrameCallback(countFrames);
-        } else {
-          // 计算帧率
-          const calculatedFps = Math.round((frameCount * 1000) / elapsed);
-
-          // 验证结果合理性（常见帧率：24, 25, 30, 60等）
-          if (calculatedFps >= 10 && calculatedFps <= 120) {
-            this.videoDetectedFps = calculatedFps;
-            console.log(`检测到视频帧率: ${this.videoDetectedFps} FPS（采样 ${frameCount} 帧，耗时 ${elapsed.toFixed(0)}ms）`);
-          } else {
-            // 检测结果不合理，使用配置值
-            this.videoDetectedFps = this.config.videoFps;
-            console.warn(`帧率检测异常 (${calculatedFps} FPS)，使用配置值: ${this.videoDetectedFps} FPS`);
-          }
-
-          console.log(`导出将使用: ${this.videoRealWidth}x${this.videoRealHeight} @ ${this.videoDetectedFps} FPS`);
-
-          if (loadingStatus) {
-            loadingStatus.textContent = `✓ 已就绪 (${this.videoRealWidth}x${this.videoRealHeight} @ ${this.videoDetectedFps} FPS)`;
-          }
-
-          this.video.pause();
-          this.video.currentTime = 0;
-        }
-      };
-
-      // 开始播放以检测帧率
-      this.video.currentTime = 0;
-      this.video.play().catch(err => {
-        // 播放失败，使用配置值
-        console.warn('视频播放失败，无法检测帧率，使用配置值:', err);
-        this.videoDetectedFps = this.config.videoFps;
-        if (loadingStatus) {
-          loadingStatus.textContent = `✓ 已就绪 (${this.videoRealWidth}x${this.videoRealHeight} @ ${this.videoDetectedFps} FPS 估算)`;
-        }
-      });
-
-      (this.video as any).requestVideoFrameCallback(countFrames);
-    } else {
-      // 不支持自动检测，使用配置值
-      this.videoDetectedFps = this.config.videoFps;
-      console.warn(`浏览器不支持 requestVideoFrameCallback，使用配置的帧率: ${this.videoDetectedFps} FPS`);
-      console.log(`导出将使用: ${this.videoRealWidth}x${this.videoRealHeight} @ ${this.videoDetectedFps} FPS`);
-
-      if (loadingStatus) {
-        loadingStatus.textContent = `✓ 已就绪 (${this.videoRealWidth}x${this.videoRealHeight} @ ${this.videoDetectedFps} FPS 估算)`;
-      }
-    }
   }
 
   private startTracking(placementId: string): void {
@@ -362,6 +289,13 @@ class VideoAdReplacer {
 
     if (now - this.lastFpsUpdate >= 1000) {
       this.currentFps = Math.round((this.frameCount * 1000) / (now - this.lastFpsUpdate));
+
+      // 统计视频真实帧率（用于导出）
+      // 只在合理范围内更新
+      if (this.currentFps >= 15 && this.currentFps <= 120) {
+        this.videoDetectedFps = this.currentFps;
+      }
+
       this.frameCount = 0;
       this.lastFpsUpdate = now;
 
@@ -401,11 +335,6 @@ class VideoAdReplacer {
 
     if (this.videoRealWidth === 0 || this.videoRealHeight === 0) {
       alert('视频尚未加载完成，请稍等');
-      return;
-    }
-
-    if (this.videoDetectedFps === 0) {
-      alert('视频帧率尚未检测完成，请稍等');
       return;
     }
 
