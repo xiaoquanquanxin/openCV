@@ -111,8 +111,8 @@
             导出时会进行<strong>离线渲染</strong>，逐帧处理，输出高质量视频，不受实时性能影响！
         </p>
         <p style="color: #2196F3; font-weight: bold;">
-            🎬 <strong>原分辨率导出</strong>：导出视频将自动使用<strong>原视频的分辨率和帧率</strong>。
-            如需修改视频帧率，请在 <code>src/main.ts</code> 中修改 <code>config.videoFps</code> 参数。
+            🎬 <strong>自动检测原视频参数</strong>：导出视频将<strong>自动检测并使用原视频的分辨率和帧率</strong>。
+            系统会在加载时自动检测（Chrome/Edge），或使用配置值（其他浏览器）。
         </p>
         <p><strong>提示：</strong>视频会自动暂停在第一帧，方便你标记角点</p>
     </div>

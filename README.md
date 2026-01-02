@@ -27,7 +27,7 @@
 8. **强制重置机制** - 完全清空状态和事件监听器
 9. **前景检测** - 基于运动检测规避运动员
 10. **双模式渲染** - 实时预览 + 离线导出 ⭐
-11. **原分辨率导出** - 自动检测原视频分辨率和帧率 🆕
+11. **原视频参数导出** - 自动检测分辨率和帧率 🆕
 
 ### 🚧 待优化
 - [ ] 多广告牌同时跟踪（架构已支持，UI 待完善）
@@ -131,7 +131,8 @@ npm run preview
 ```typescript
 private config: AppConfig = {
   videoUrl: '/assets/videos/stock.mp4',
-  videoSize: { width: 854, height: 480 },
+  videoFps: 30,  // 原视频帧率（系统会自动检测，此为备用值）
+  previewSize: { width: 854, height: 480 },  // 预览canvas大小
   ads: [
     { id: 'ad1', url: '/assets/images/ad-image.png', type: 'image' },
     { id: 'ad2', url: '/assets/images/another-ad.png', type: 'image' },
@@ -139,6 +140,11 @@ private config: AppConfig = {
   ]
 };
 ```
+
+**说明**：
+- `videoFps`: 原视频帧率。Chrome/Edge 会自动检测真实帧率，此值作为备用（其他浏览器使用）
+- `previewSize`: 预览 canvas 大小（可调小加快预览速度，不影响导出质量）
+- 导出视频会自动使用原视频的真实分辨率和检测到的帧率
 
 ## 🧩 核心模块说明
 

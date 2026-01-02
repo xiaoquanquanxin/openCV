@@ -12,15 +12,20 @@
 > "能不能做成，原视频多少帧，输出就多少帧？并且原视频多大输出就多大（像素）？预览的 canvas 小点就小点这无所谓"
 >
 > "它输出的阶段是使用 cpu 还是gpu？我看任务管理器都没跑满但是速度也不快"
+>
+> "输出的帧率和原视频帧率不一样"
 
 #### 🆕 核心改进
 
 **1. 原分辨率导出系统**
 - ✅ 自动检测原视频的真实分辨率（`video.videoWidth` / `videoHeight`）
-- ✅ 配置原视频帧率（`videoFps`）
-- ✅ 导出使用原始分辨率和帧率，不再固定为 854x480 @ 30 FPS
+- ✅ **自动检测原视频帧率**（使用 `requestVideoFrameCallback` API）🆕
+  - Chrome/Edge: 自动检测实际帧率（采样 1 秒）
+  - 其他浏览器: 使用配置的估算值
+- ✅ 导出使用原始分辨率和检测到的帧率
 - ✅ 预览 canvas 使用较小分辨率（配置 `previewSize`），不影响导出质量
 - ✅ 自动坐标缩放：预览坐标 → 真实分辨率坐标
+- ✅ UI 显示检测到的视频参数：`✓ 已就绪 (1920x1080 @ 30 FPS)`
 
 **2. 架构调整**
 
@@ -36,9 +41,22 @@ export interface AppConfig {
 
 **修改 `main.ts`**:
 - 🆕 添加 `videoRealWidth` / `videoRealHeight` 属性（运行时获取）
+- 🆕 添加 `videoDetectedFps` 属性（自动检测）
 - 🆕 `loadVideo()` 监听 `loadedmetadata` 事件，自动获取真实分辨率
+- 🆕 `detectFrameRate()` 自动检测帧率：
+  ```typescript
+  // Chrome/Edge 支持
+  video.requestVideoFrameCallback((now, metadata) => {
+    // 采样 1 秒，统计帧数
+    frameCount++;
+    if (elapsed >= 1000) {
+      detectedFps = Math.round(frameCount * 1000 / elapsed);
+    }
+  });
+  ```
 - 🆕 离线 canvas 使用真实分辨率（导出用）
 - 🆕 预览 canvas 使用配置的预览尺寸
+- 🆕 导出时使用检测到的帧率：`captureStream(videoDetectedFps)`
 - 🆕 导出时坐标自动缩放：
   ```typescript
   const scaleX = videoRealWidth / canvas.width;
@@ -48,6 +66,11 @@ export interface AppConfig {
     y: p.y * scaleY
   }));
   ```
+
+**Bug 修复**：
+- 🐛 修复导出时内存泄漏问题（每帧创建新 Renderer 导致 prevFrame 累积）
+  - 将 Renderer 创建移到循环外，复用同一实例
+  - 导出完成后调用 `cleanup()` 释放资源
 
 **3. 性能分析文档** 📚
 
@@ -112,12 +135,14 @@ const totalFrames = Math.floor(duration * fps);
 控制台输出示例：
 视频真实分辨率: 1920x1080
 预览分辨率: 854x480
-导出将使用真实分辨率: 1920x1080 @ 30 FPS
+检测到视频帧率: 30 FPS（采样 30 帧）
+导出将使用: 1920x1080 @ 30 FPS
 开始导出: 1920x1080 @ 30 FPS, 共 300 帧
 正在处理第 150 / 300 帧 (1920x1080)
 视频导出完成！
 分辨率: 1920x1080
 帧率: 30 FPS
+总帧数: 300
 ```
 
 #### 📚 文档更新
