@@ -1,70 +1,156 @@
-function onOpenCvReady() {
-  const video = document.getElementById('videoInput') as HTMLVideoElement;
-  const canvas = document.getElementById('canvasOutput') as HTMLCanvasElement;
-  const ctx = canvas.getContext('2d')!;
-  const maxVideoWidth = 854;
-  const maxVideoHeight = 480;
-  const maxAdWidth = 200;
-  const maxAdHeight = 100;
-  const adImage = new Image();
+import { MarkingUI } from './modules/markingUI';
+import { StateManager } from './modules/state';
+import { Tracker } from './modules/tracker';
+import { Transform } from './modules/transform';
+import { Renderer } from './modules/renderer';
+import { Point } from './types';
 
-  // 直接加载固定的视频和广告图片
-  video.src = '/assets/videos/stock.mp4';
-  video.load();
-  adImage.src = '/assets/images/ad-image.png';
+class VideoAdReplacer {
+  private video: HTMLVideoElement;
+  private canvas: HTMLCanvasElement;
+  private ctx: CanvasRenderingContext2D;
+  private cv: any;
+  private stateManager: StateManager;
+  private markingUI: MarkingUI;
+  private tracker: Tracker;
+  private transform: Transform;
+  private renderer: Renderer;
+  private adImage: HTMLImageElement;
 
-  // 处理广告图像加载完成
-  adImage.onload = function() {
-    console.log("广告图像已加载");
-    console.log("广告图像尺寸：", adImage.width, adImage.height);
+  constructor() {
+    this.initElements();
+    this.loadAdImage();
+    this.initModules();
+    this.setupEventListeners();
+    this.loadVideo();
+  }
 
-    // 自动调整广告图像的大小
-    let adWidth = maxAdWidth;
-    let adHeight = (adImage.height / adImage.width) * maxAdWidth;
-    if (adHeight > maxAdHeight) {
-      adHeight = maxAdHeight;
-      adWidth = (adImage.width / adImage.height) * maxAdHeight;
-    }
+  private initElements(): void {
+    this.video = document.getElementById('videoInput') as HTMLVideoElement;
+    this.canvas = document.getElementById('canvasOutput') as HTMLCanvasElement;
+    this.ctx = this.canvas.getContext('2d')!;
+    this.cv = (window as any).cv;
+  }
 
-    console.log("调整后的广告图像尺寸：", adWidth, adHeight);
-
-    // 处理视频帧
-    function processVideo() {
-      if (video.paused || video.ended) return;
-
-      // 设置 canvas 的宽高
-      canvas.width = maxVideoWidth;
-      canvas.height = maxVideoHeight;
-
-      // 将当前视频帧绘制到 canvas 上
-      ctx.drawImage(video, 0, 0, maxVideoWidth, maxVideoHeight);
-
-      // 插入广告图像到视频帧的左上角
-      ctx.drawImage(adImage, 20, 20, adWidth, adHeight);
-
-      // 显示处理后的图像
-      const cv = (window as any).cv;
-      if (cv) {
-        cv.imshow(canvas, cv.imread(canvas));
-      }
-
-      // 继续处理下一帧
-      requestAnimationFrame(processVideo);
-    }
-
-    // 当视频播放时开始处理
-    video.onplay = function () {
-      processVideo();
+  private loadAdImage(): void {
+    this.adImage = new Image();
+    this.adImage.src = '/assets/images/ad-image.png';
+    this.adImage.onload = () => {
+      console.log('广告图像加载完成');
+      this.transform = new Transform(this.cv);
+      this.transform.initialize({
+        adImage: this.adImage,
+        videoWidth: 854,
+        videoHeight: 480
+      });
     };
-  };
+  }
 
-  // 处理广告图像加载错误
-  adImage.onerror = function() {
-    console.log("广告图像加载失败！");
-  };
+  private initModules(): void {
+    this.stateManager = new StateManager();
+    this.markingUI = new MarkingUI(this.canvas, this.ctx);
+    this.tracker = new Tracker(this.cv);
+    this.renderer = new Renderer(this.canvas, this.ctx, this.cv);
+
+    this.tracker.onTrackingLost = () => {
+      console.warn('跟踪丢失！');
+    };
+
+    this.markingUI.onComplete = (corners) => {
+      console.log('标记完成:', corners);
+      this.stateManager.setState({
+        mode: 'tracking',
+        corners
+      });
+      this.startTracking();
+    };
+  }
+
+  private setupEventListeners(): void {
+    const startBtn = document.getElementById('startMarking') as HTMLButtonElement;
+    const resetBtn = document.getElementById('reset') as HTMLButtonElement;
+
+    startBtn.addEventListener('click', () => {
+      this.video.pause();
+      this.video.currentTime = 0;
+      this.markingUI.startMarking();
+    });
+
+    resetBtn.addEventListener('click', () => {
+      this.markingUI.reset();
+      this.stateManager.reset();
+      this.video.currentTime = 0;
+      this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    });
+
+    this.video.addEventListener('seeked', () => {
+      if (this.stateManager.getState().mode === 'idle' || this.stateManager.getState().mode === 'marking') {
+        this.ctx.drawImage(this.video, 0, 0, this.canvas.width, this.canvas.height);
+      }
+    });
+  }
+
+  private loadVideo(): void {
+    this.video.src = '/assets/videos/stock.mp4';
+    this.canvas.width = 854;
+    this.canvas.height = 480;
+  }
+
+  private startTracking(): void {
+    const corners = this.stateManager.getState().corners;
+
+    // 暂停视频，回到第一帧
+    this.video.pause();
+    this.video.currentTime = 0;
+
+    // 等待视频定位到第一帧
+    const onSeeked = () => {
+      // 读取第一帧
+      this.ctx.drawImage(this.video, 0, 0, this.canvas.width, this.canvas.height);
+      const firstFrame = this.cv.imread(this.canvas);
+
+      // 初始化跟踪器
+      this.tracker.initialize(corners, firstFrame);
+      firstFrame.delete();
+
+      // 开始播放
+      this.video.play();
+      this.video.removeEventListener('seeked', onSeeked);
+      this.processVideoWithTracking();
+    };
+
+    this.video.addEventListener('seeked', onSeeked);
+  }
+
+  private processVideoWithTracking(): void {
+    if (this.video.paused || this.video.ended) return;
+
+    // 读取当前帧
+    this.ctx.drawImage(this.video, 0, 0, this.canvas.width, this.canvas.height);
+    const currentFrame = this.cv.imread(this.canvas);
+
+    // 跟踪
+    const trackedCorners = this.tracker.track(currentFrame);
+
+    // 执行透视变换
+    const warpedAd = this.transform.warpAd(trackedCorners);
+
+    // 使用渲染器融合
+    this.renderer.render(currentFrame, warpedAd, trackedCorners);
+
+    if (warpedAd) warpedAd.delete();
+    currentFrame.delete();
+
+    requestAnimationFrame(() => this.processVideoWithTracking());
+  }
 }
 
-// 等待 OpenCV 加载完成
+function onOpenCvReady() {
+  console.log('OpenCV.js 已加载');
+  new VideoAdReplacer();
+}
+
+// OpenCV加载检测
 if (typeof (window as any).cv !== 'undefined') {
   onOpenCvReady();
 } else {
