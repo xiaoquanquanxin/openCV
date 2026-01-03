@@ -3,14 +3,151 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OpenCV.js - 视频广告插入</title>
+    <title>视频广告牌动态替换系统</title>
     <script async src="https://docs.opencv.org/4.x/opencv.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        h2 {
+            color: #333;
+        }
+        #canvasOutput {
+            border: 2px solid #ccc;
+            display: block;
+            margin: 10px 0;
+            background-color: #000;
+        }
+        #controls {
+            margin: 10px 0;
+        }
+        button {
+            padding: 10px 20px;
+            margin-right: 10px;
+            cursor: pointer;
+            font-size: 14px;
+            border: none;
+            border-radius: 4px;
+            background-color: #4CAF50;
+            color: white;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        button#reset {
+            background-color: #f44336;
+        }
+        button#reset:hover {
+            background-color: #da190b;
+        }
+        #instructions {
+            background: #fff;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        #instructions h3 {
+            margin-top: 0;
+            color: #4CAF50;
+        }
+        #instructions ol {
+            margin: 10px 0;
+            padding-left: 20px;
+        }
+        #instructions li {
+            margin: 5px 0;
+        }
+        #instructions strong {
+            color: #f44336;
+        }
+        #videoInput {
+            display: none;
+        }
+    </style>
 </head>
 <body>
-<h2>视频中插入广告</h2>
-<video id="videoInput" controls></video>
-<canvas id="canvasOutput" style="border: 1px solid #ccc; display: block;"></canvas>
+    <h2>视频广告牌动态替换系统</h2>
 
-<script type="module" src="/src/main.ts"></script>
+    <div id="controls">
+        <button id="startMarking">开始标记</button>
+        <button id="replay" style="background-color: #2196F3; display: none;">重播</button>
+        <button id="export" style="background-color: #FF9800; display: none;">导出视频</button>
+        <button id="reset">重置</button>
+        <span id="loadingStatus" style="margin-left: 10px; color: #f44336; font-weight: bold;">加载中...</span>
+        <span id="fpsDisplay" style="margin-left: 20px; font-weight: bold; color: #4CAF50; font-family: monospace;">-- FPS</span>
+    </div>
+
+    <div id="exportProgress" style="display: none; margin: 10px 0; background: #e3f2fd; padding: 15px; border-radius: 5px;">
+        <h4 style="margin: 0 0 10px 0; color: #1976d2;">离线渲染中...</h4>
+        <div style="background: #fff; border-radius: 4px; height: 24px; position: relative; overflow: hidden;">
+            <div id="progressBar" style="background: linear-gradient(90deg, #4CAF50, #8BC34A); height: 100%; width: 0%; transition: width 0.3s;"></div>
+            <span id="progressText" style="position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); font-weight: bold; color: #333;">0%</span>
+        </div>
+        <p style="margin: 10px 0 0 0; font-size: 12px; color: #666;">
+            <span id="progressDetails">正在处理第 0 帧...</span>
+        </p>
+    </div>
+
+    <div id="instructions">
+        <h3>使用说明：</h3>
+        <ol>
+            <li>点击"<strong>开始标记</strong>"按钮</li>
+            <li>在视频画面中按顺序点击广告牌的<strong>4个角点</strong>：
+                <br><strong>左上 → 右上 → 右下 → 左下</strong>
+            </li>
+            <li>标记完成后，系统会自动开始<strong>实时预览</strong>（可能有跳帧）</li>
+            <li>调整下方的前景检测参数后，点击"<strong>重播</strong>"按钮重新预览</li>
+            <li>满意后，点击"<strong>导出视频</strong>"进行<strong>离线渲染</strong>（不受实时性能限制）⭐</li>
+            <li>点击"<strong>重置</strong>"清空所有数据，重新开始</li>
+        </ol>
+        <p style="color: #FF9800; font-weight: bold;">
+            💡 <strong>重要</strong>：实时预览可能卡顿（约25 FPS），这是正常的。
+            导出时会进行<strong>离线渲染</strong>，逐帧处理，输出高质量视频，不受实时性能影响！
+        </p>
+        <p style="color: #2196F3; font-weight: bold;">
+            🎬 <strong>自动检测原视频参数</strong>：导出视频将<strong>自动检测并使用原视频的分辨率和帧率</strong>。
+            系统会在加载时自动检测（Chrome/Edge），或使用配置值（其他浏览器）。
+        </p>
+        <p><strong>提示：</strong>视频会自动暂停在第一帧，方便你标记角点</p>
+    </div>
+
+    <div id="instructions" style="background: #fff3cd; border-left: 4px solid #ffc107;">
+        <h3 style="color: #856404;">⚙️ 前景检测参数（实验性）</h3>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+            <label style="display: flex; align-items: center; gap: 10px;">
+                <input type="checkbox" id="enableForeground" checked>
+                <span>启用前景检测（规避运动员）</span>
+            </label>
+        </div>
+        <div style="margin-top: 10px;">
+            <label style="display: block; margin: 5px 0;">
+                运动检测阈值: <span id="thresholdValue">25</span>
+                <input type="range" id="motionThreshold" min="5" max="100" value="25" style="width: 200px;">
+            </label>
+            <label style="display: block; margin: 5px 0;">
+                膨胀核大小: <span id="dilateValue">5</span>
+                <input type="range" id="dilateSize" min="0" max="15" value="5" style="width: 200px;">
+            </label>
+            <label style="display: block; margin: 5px 0;">
+                模糊核大小: <span id="blurValue">5</span>
+                <input type="range" id="blurSize" min="0" max="15" value="5" step="1" style="width: 200px;">
+                <span style="font-size: 11px; color: #856404;">(系统自动转为奇数)</span>
+            </label>
+        </div>
+        <p style="font-size: 12px; color: #856404; margin-top: 10px;">
+            <strong>说明：</strong>运动检测阈值越小越敏感，膨胀/模糊可以平滑遮罩边缘。实时调整参数可查看效果。
+        </p>
+    </div>
+
+    <video id="videoInput"></video>
+    <canvas id="canvasOutput"></canvas>
+
+    <script type="module" src="/src/main.ts"></script>
 </body>
 </html>
